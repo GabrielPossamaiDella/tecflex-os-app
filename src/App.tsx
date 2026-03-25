@@ -8,19 +8,20 @@ import Home from "@/pages/Home";
 import NovaOS from "@/pages/NovaOS";
 import OSDetalhe from "@/pages/OSDetalhe";
 import NotFound from "@/pages/NotFound";
+import { useSync } from '@/hooks/useSync';
 
 const queryClient = new QueryClient();
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+// Componente para gerenciar o Sync sem bloquear a renderização
+function SyncHandler() {
+  useSync();
+  return null;
+}
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background-secondary">
-        <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-      </div>
-    );
-  }
+// 1. LIMPEZA: Removemos o "return null" daqui. 
+// Se chegou aqui, é porque já parou de carregar.
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
 
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
@@ -29,10 +30,15 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AppRoutes() {
   const { user, loading } = useAuth();
 
+  // 2. LIMPEZA: Removemos o timer de 3 segundos que forçava a tela branca.
+  // Agora a bolinha só some quando o app realmente terminar de ler o banco.
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background-secondary">
-        <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8fafc]">
+        <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+        <p className="mt-4 text-xs font-bold text-slate-400 uppercase tracking-widest animate-pulse">
+          Iniciando TECFLEX...
+        </p>
       </div>
     );
   }
@@ -51,9 +57,10 @@ function AppRoutes() {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <Sonner />
+      <Sonner position="top-right" richColors closeButton /> 
       <BrowserRouter>
         <AuthProvider>
+          <SyncHandler />
           <AppRoutes />
         </AuthProvider>
       </BrowserRouter>

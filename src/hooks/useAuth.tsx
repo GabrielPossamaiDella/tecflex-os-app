@@ -24,35 +24,74 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_, session) => {
+    let mounted = true;
+
+    // 🚀 DISJUNTOR DE SEGURANÇA: Se o Supabase travar a conexão por qualquer motivo,
+    // forçamos o carregamento a terminar em 4 segundos para não travar o app!
+    const failSafeTimer = setTimeout(() => {
+      if (mounted && loading) {
+        console.warn("⏳ Supabase demorou muito para responder. Liberando app (Possível modo offline).");
+        setLoading(false);
+      }
+    }, 4000);
+
+    const loadSession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) throw error;
+
+        if (mounted) setUser(session?.user ?? null);
+
+        if (session?.user) {
+          const { data } = await supabase
+            .from('tecnicos')
+            .select('id, nome, telefone')
+            .eq('user_id', session.user.id)
+            .maybeSingle(); // <-- TROCADO AQUI: Evita o erro 406 se não achar o técnico
+          
+          if (mounted && data) setTecnico(data);
+        }
+      } catch (err) {
+        console.error("Erro na verificação de sessão. Iniciando sem usuário.", err);
+        if (mounted) {
+          setUser(null);
+          setTecnico(null);
+        }
+      } finally {
+        // Garantia absoluta de que a bolinha de carregamento vai sumir
+        if (mounted) {
+          clearTimeout(failSafeTimer);
+          setLoading(false);
+        }
+      }
+    };
+
+    loadSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!mounted) return;
       setUser(session?.user ?? null);
+      
       if (session?.user) {
-        const { data } = await supabase
+        supabase
           .from('tecnicos')
           .select('id, nome, telefone')
           .eq('user_id', session.user.id)
-          .single();
-        setTecnico(data);
+          .maybeSingle() // <-- TROCADO AQUI TAMBÉM: Evita o erro 406
+          .then(({ data }) => {
+            if (mounted && data) setTecnico(data);
+          });
       } else {
         setTecnico(null);
       }
       setLoading(false);
     });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        supabase
-          .from('tecnicos')
-          .select('id, nome, telefone')
-          .eq('user_id', session.user.id)
-          .single()
-          .then(({ data }) => setTecnico(data));
-      }
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+      clearTimeout(failSafeTimer);
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
