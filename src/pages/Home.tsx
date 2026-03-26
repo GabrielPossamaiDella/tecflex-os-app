@@ -1,202 +1,361 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, ChevronRight, LogOut, ClipboardList, CloudOff, Cloud } from 'lucide-react';
+import { 
+  Plus, LogOut, ClipboardList, 
+  CloudOff, Cloud, Search, RefreshCw, Trash2,
+  LayoutDashboard, UploadCloud, User, Wrench
+} from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { db } from '@/lib/db'; 
 import { useAuth } from '@/hooks/useAuth';
 import StatusBadge from '@/components/StatusBadge';
+import { toast } from 'sonner';
 
 interface OSItem {
   id: string;
   status: string;
   defeito_reclamado: string | null;
+  maquina_descricao: string | null;
   created_at: string;
   cliente_nome: string; 
   sincronizado: boolean;
+  pecas?: any[];
+  hora_saida?: string | null;
+  hora_chegada?: string | null;
+  tecnico_id?: string | null;
 }
 
 export default function Home() {
-  const { user, signOut } = useAuth(); 
+  // 1. CORREÇÃO: Puxamos o 'tecnico' também para garantir o ID correto
+  const { user, tecnico, signOut } = useAuth(); 
   const navigate = useNavigate();
   const [ordens, setOrdens] = useState<OSItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isSyncing, setIsSyncing] = useState(false);
 
+  // O ID que o sistema deve usar para buscar as OS
+  const activeId = tecnico?.id || user?.id;
+
+  // 2. TRAVA DE SEGURANÇA: Só carrega se o activeId já existir, matando o erro "eq.undefined"
   useEffect(() => {
-    if (user?.id) {
+    if (activeId) {
       loadOrdens();
-    } else {
-      setLoading(false); 
     }
-  }, [user]);
+  }, [activeId]);
 
   const loadOrdens = async () => {
-    if (!user?.id) return;
-    
+    if (!activeId) return; // Trava dupla
     setLoading(true);
     try {
       let ordensOnline: OSItem[] = [];
-      
       if (navigator.onLine) {
         const { data, error } = await supabase
           .from('ordens_servico')
-          .select('id, status, defeito_reclamado, created_at, clientes(nome)')
-          .eq('tecnico_id', user.id) 
+          .select('id, status, defeito_reclamado, maquina_descricao, created_at, clientes(nome)')
+          .eq('tecnico_id', activeId) // Usando o ID validado
           .order('created_at', { ascending: false });
         
         if (!error && data) {
-          ordensOnline = data.map((os: any) => {
-            // TRAVA DE SEGURANÇA: Garante que lê o nome mesmo se o Supabase mandar em formato de Array
-            const nomeCliente = Array.isArray(os.clientes) 
-              ? os.clientes[0]?.nome 
-              : os.clientes?.nome;
-
-            return {
-              id: os.id,
-              status: os.status,
-              defeito_reclamado: os.defeito_reclamado,
-              created_at: os.created_at,
-              cliente_nome: nomeCliente || 'Cliente não identificado',
-              sincronizado: true
-            };
-          });
+          ordensOnline = data.map((os: any) => ({
+            id: os.id,
+            status: os.status,
+            defeito_reclamado: os.defeito_reclamado,
+            maquina_descricao: os.maquina_descricao,
+            created_at: os.created_at,
+            cliente_nome: (Array.isArray(os.clientes) ? os.clientes[0]?.nome : os.clientes?.nome) || 'Cliente não identificado',
+            sincronizado: true
+          }));
         }
       }
 
       const ordensLocaisRaw = await db.ordens_os.toArray();
-      const ordensLocais: OSItem[] = ordensLocaisRaw.map(os => ({
-        id: os.id || '',
-        status: os.status,
-        defeito_reclamado: os.defeito_reclamado || '',
-        created_at: os.created_at,
-        cliente_nome: os.cliente_nome || 'Cliente Local',
-        sincronizado: !!os.sincronizado
+      
+      const ordensLocais: OSItem[] = await Promise.all(ordensLocaisRaw.map(async (os: any) => {
+        let nomeReal = 'Cliente Desconhecido';
+        if (os.cliente_id) {
+          const clienteLocal = await db.clientes_cache.get(os.cliente_id);
+          if (clienteLocal) nomeReal = clienteLocal.nome;
+        }
+
+        return {
+          id: os.id || '',
+          status: os.status,
+          defeito_reclamado: os.defeito_reclamado || '',
+          maquina_descricao: os.maquina_descricao || '',
+          created_at: os.created_at,
+          cliente_nome: nomeReal, 
+          sincronizado: !!os.sincronizado,
+          pecas: os.pecas,
+          hora_saida: os.hora_saida,
+          hora_chegada: os.hora_chegada,
+          tecnico_id: os.tecnico_id
+        };
       }));
 
       const mapResult = new Map<string, OSItem>();
-      
       ordensOnline.forEach(os => mapResult.set(os.id, os));
-      
       ordensLocais.forEach(os => {
-        if (!mapResult.has(os.id) || !os.sincronizado) {
-          mapResult.set(os.id, os);
-        }
+        if (!mapResult.has(os.id) || !os.sincronizado) mapResult.set(os.id, os);
       });
 
-      const finalResult = Array.from(mapResult.values()).sort((a, b) => 
+      setOrdens(Array.from(mapResult.values()).sort((a, b) => 
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
-
-      setOrdens(finalResult);
+      ));
     } catch (err) {
-      console.error("Erro ao carregar OS na Home:", err);
+      toast.error("Erro ao carregar lista");
     } finally {
       setLoading(false);
     }
   };
 
-  const abertasHoje = ordens.filter((o) => {
+  const buildTimestamp = (timeStr: string | null | undefined) => {
+    if (!timeStr) return null;
+    if (timeStr.includes('T')) return timeStr; 
     try {
-        const today = new Date().toLocaleDateString();
-        const osDate = new Date(o.created_at).toLocaleDateString();
-        return o.status === 'aberta' && osDate === today;
-    } catch {
-        return false;
+      const data = new Date();
+      const parts = timeStr.split(':');
+      if (parts.length >= 2) {
+        data.setHours(Number(parts[0]), Number(parts[1]), 0, 0);
+        return data.toISOString();
+      }
+    } catch (e) {
+      return null;
     }
-  }).length;
+    return null;
+  };
+
+  const syncPendingOS = async () => {
+    if (!navigator.onLine) {
+      toast.error("Conecte-se à internet para sincronizar!");
+      return;
+    }
+
+    try {
+      setIsSyncing(true);
+      const ordensPendentes = await db.ordens_os.filter(os => !os.sincronizado).toArray();
+
+      if (ordensPendentes.length === 0) {
+        toast.info("Tudo já está sincronizado com a nuvem!");
+        return;
+      }
+
+      let sucesso = 0;
+
+      for (const os of ordensPendentes) {
+        if (os.cliente_id) {
+          const clienteLocal = await db.clientes_cache.get(os.cliente_id);
+          if (clienteLocal && !clienteLocal.sincronizado) {
+            const { error: cliErr } = await supabase.from('clientes').upsert({
+              id: clienteLocal.id,
+              nome: clienteLocal.nome,
+              fone: clienteLocal.fone,
+              documento: clienteLocal.documento,
+              endereco: clienteLocal.endereco,
+              cidade: clienteLocal.cidade
+            });
+            if (!cliErr) await db.clientes_cache.update(clienteLocal.id, { sincronizado: true });
+          }
+        }
+
+        const horaInicioFull = buildTimestamp(os.hora_saida);
+        const horaFimFull = buildTimestamp(os.hora_chegada);
+
+        const { error: osError } = await supabase.from('ordens_servico').upsert({
+          id: os.id,
+          cliente_id: os.cliente_id,
+          tecnico_id: os.tecnico_id || activeId, // Fallback se a OS antiga não tiver o ID do técnico gravado
+          defeito_reclamado: os.defeito_reclamado,
+          maquina_descricao: os.maquina_descricao,
+          hora_saida: horaInicioFull, 
+          hora_chegada: horaFimFull,  
+          servico_executado: os.servico_executado,
+          km_rodado: os.km_rodado,
+          assinatura_base64: os.assinatura_base64,
+          status: os.status,
+          total_pecas: os.total_pecas,
+          total_geral: os.total_geral,
+          tempo_atendimento_min: os.tempo_atendimento_min,
+          valor_deslocamento: os.valor_deslocamento,
+        });
+
+        if (!osError) {
+          if (os.pecas && os.pecas.length > 0) {
+            await supabase.from('pecas_os').insert(
+              os.pecas.map((p: any) => ({
+                ordem_servico_id: os.id,
+                nome: p.nome,
+                valor_unitario: p.valor_unitario,
+                quantidade: p.quantidade,
+                total: p.quantidade * p.valor_unitario
+              }))
+            );
+          }
+          await db.ordens_os.update(os.id, { sincronizado: true });
+          sucesso++;
+        } else {
+          console.error("Erro na OS", os.id, osError);
+        }
+      }
+
+      if (sucesso > 0) {
+        toast.success(`${sucesso} Ordens sincronizadas com sucesso!`);
+        loadOrdens();
+      } else {
+        toast.error("Nenhuma OS pôde ser sincronizada.");
+      }
+    } catch (error) {
+      toast.error("Erro durante a sincronização.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const deleteIndividualOS = async (e: React.MouseEvent, id: string, isSincronizada: boolean) => {
+    e.stopPropagation(); 
+    if (!confirm("Excluir esta Ordem de Serviço permanentemente?")) return;
+
+    try {
+      setLoading(true);
+      await db.ordens_os.delete(id);
+      if (isSincronizada && navigator.onLine) {
+        await supabase.from('ordens_servico').delete().eq('id', id);
+      }
+      toast.success("OS removida com sucesso!");
+      loadOrdens();
+    } catch (err) {
+      toast.error("Erro ao deletar OS");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredOS = ordens.filter(os => 
+    os.cliente_nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    os.id.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const pendingCount = ordens.filter(o => !o.sincronizado).length;
 
   return (
-    <div className="min-h-screen bg-background-secondary">
-      {/* Header */}
-      <header className="bg-primary text-primary-foreground px-4 py-4 sticky top-0 z-50 shadow-md">
-        <div className="flex items-center justify-between max-w-lg mx-auto">
-          <h1 className="text-xl font-black tracking-tighter italic uppercase">Tecflex</h1>
+    <div className="min-h-screen bg-slate-50 pb-24 font-sans selection:bg-indigo-100">
+      <header className="bg-slate-900 text-white p-6 sticky top-0 z-50 shadow-2xl shadow-slate-900/20">
+        <div className="flex items-center justify-between max-w-2xl mx-auto">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-medium opacity-90 truncate max-w-[100px]">
-               {user?.email?.split('@')[0] || 'Técnico'}
-            </span>
-            <button onClick={signOut} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-              <LogOut className="w-5 h-5" />
-            </button>
+            <div className="bg-indigo-600 p-2 rounded-xl shadow-lg shadow-indigo-500/40">
+              <LayoutDashboard size={24} />
+            </div>
+            <div>
+              <h1 className="text-xl font-black tracking-tight uppercase italic">Tecflex</h1>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-indigo-400 font-bold">Gestão de Assistência</p>
+            </div>
           </div>
+          <button onClick={signOut} className="p-2 bg-slate-800 hover:bg-rose-900/40 hover:text-rose-400 rounded-xl transition-all">
+            <LogOut size={20} className="text-slate-400 hover:text-rose-400 transition-colors" />
+          </button>
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto px-4 py-6 pb-24">
-        {/* Status da Conexão */}
-        {!navigator.onLine && (
-          <div className="bg-amber-100 text-amber-800 p-3 rounded-xl mb-4 flex items-center gap-2 text-sm font-bold border border-amber-200 animate-pulse">
-            <CloudOff className="w-4 h-4" /> Trabalhando Offline
+      <main className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+        
+        {pendingCount > 0 && navigator.onLine && (
+          <div className="bg-amber-50 border-2 border-amber-200 p-4 rounded-2xl flex items-center justify-between shadow-sm animate-in fade-in slide-in-from-top-4">
+            <div>
+              <h3 className="font-black text-amber-800 text-sm uppercase">Sincronização Pendente</h3>
+              <p className="text-amber-700/80 text-xs font-medium">Você tem {pendingCount} OS salvas apenas no celular.</p>
+            </div>
+            <button 
+              onClick={syncPendingOS} 
+              disabled={isSyncing}
+              className="bg-amber-500 hover:bg-amber-600 text-white font-black text-[10px] uppercase tracking-widest px-4 py-3 rounded-xl shadow-lg shadow-amber-500/30 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+            >
+              {isSyncing ? <RefreshCw size={16} className="animate-spin" /> : <UploadCloud size={16} />}
+              {isSyncing ? 'Enviando...' : 'Enviar Agora'}
+            </button>
           </div>
         )}
 
-        <div className="flex justify-between items-center mb-4">
-          <p className="text-support font-bold text-sm uppercase tracking-widest">
-            {abertasHoje} {abertasHoje === 1 ? 'ordem aberta' : 'ordens abertas'} hoje
-          </p>
-          <button onClick={loadOrdens} className="text-xs text-primary font-bold">Atualizar</button>
+        <div className="relative group">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input 
+            type="text"
+            placeholder="Buscar por cliente ou número..."
+            className="w-full bg-white border-2 border-slate-200 focus:border-indigo-600 p-3.5 pl-12 rounded-2xl text-sm font-medium outline-none shadow-sm transition-colors text-slate-800"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
 
-        {loading ? (
-          <div className="flex justify-center py-12">
-            <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-center">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total de Ordens</p>
+            <p className="text-2xl font-black text-slate-900">{ordens.length}</p>
           </div>
-        ) : ordens.length === 0 ? (
-          <div className="text-center py-16 animate-fade-in bg-white rounded-[2rem] border-2 border-dashed border-muted shadow-inner">
-            <ClipboardList className="w-16 h-16 mx-auto text-muted-foreground/20 mb-4" />
-            <p className="text-lg font-bold text-foreground">Sem ordens registradas</p>
-            <p className="text-support mt-1 px-8 text-sm">Toque no botão abaixo para iniciar um atendimento.</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {ordens.map((os, i) => (
-              <button
+          <button onClick={loadOrdens} className="bg-indigo-600 hover:bg-indigo-700 p-4 rounded-2xl shadow-lg shadow-indigo-600/20 text-white flex flex-col items-center justify-center transition-all active:scale-95 group">
+            <RefreshCw size={20} className={loading ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'} />
+            <span className="text-[10px] font-black uppercase mt-2 tracking-widest">Atualizar</span>
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {filteredOS.length === 0 && !loading ? (
+            <div className="text-center py-16 bg-white rounded-[2rem] border-2 border-dashed border-slate-200 shadow-sm">
+              <ClipboardList className="w-16 h-16 mx-auto text-slate-300 mb-4" />
+              <p className="text-lg font-bold text-slate-900">Nenhuma OS encontrada</p>
+            </div>
+          ) : (
+            filteredOS.map((os) => (
+              <div
                 key={os.id}
                 onClick={() => navigate(`/os/${os.id}`)}
-                className="card-tecflex w-full text-left p-5 bg-white rounded-2xl border-2 border-transparent hover:border-primary/20 flex items-center gap-3 shadow-sm hover:shadow-md transition-all active:scale-95"
-                style={{ animationDelay: `${i * 50}ms` }}
+                className="w-full bg-white p-5 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all flex flex-col gap-3 group cursor-pointer relative"
               >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2 truncate">
-                      <span className="font-bold text-lg text-foreground truncate uppercase tracking-tight">
-                        {os.cliente_nome}
-                      </span>
-                      {os.sincronizado ? (
-                        <Cloud className="w-4 h-4 text-success" />
-                      ) : (
-                        <CloudOff className="w-4 h-4 text-amber-500 animate-pulse" />
-                      )}
-                    </div>
-                    <StatusBadge status={os.status} />
-                  </div>
-                  
-                  <p className="text-support truncate text-sm mb-3 font-medium">
-                    {os.defeito_reclamado || 'Sem descrição do defeito'}
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    #{os.id.slice(0, 6)}
+                  </span>
+                  <StatusBadge status={os.status} />
+                </div>
+
+                <div>
+                  <h2 className="font-black text-slate-900 text-lg uppercase tracking-tight group-hover:text-indigo-600 transition-colors flex items-center gap-2">
+                    <User size={18} className="text-indigo-400 shrink-0" />
+                    <span className="truncate">{os.cliente_nome}</span>
+                  </h2>
+                  <p className="text-slate-500 text-sm font-medium flex items-center gap-2 mt-2">
+                    <Wrench size={16} className="text-slate-400 shrink-0" />
+                    <span className="truncate">{os.maquina_descricao || 'Equipamento não informado'}</span>
                   </p>
-                  
-                  <div className="flex items-center justify-between pt-2 border-t border-gray-50">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">
-                      {new Date(os.created_at).toLocaleDateString('pt-BR', {
-                        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
-                      })}
-                    </p>
-                    {!os.sincronizado && (
-                      <span className="text-[9px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full font-black uppercase tracking-tighter">
-                        Pendente
-                      </span>
+                </div>
+                
+                <div className="flex items-center justify-between pt-4 mt-2 border-t border-slate-50">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 bg-slate-50 px-2 py-1.5 rounded-md">
+                      {new Date(os.created_at).toLocaleDateString('pt-BR')}
+                    </span>
+                    {os.sincronizado ? (
+                      <Cloud size={16} className="text-emerald-500" title="Sincronizado" />
+                    ) : (
+                      <CloudOff size={16} className="text-amber-500 animate-pulse" title="Aguardando Sincronização" />
                     )}
                   </div>
+                  <button 
+                    onClick={(e) => deleteIndividualOS(e, os.id, os.sincronizado)}
+                    className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                    title="Excluir OS"
+                  >
+                    <Trash2 size={18} />
+                  </button>
                 </div>
-                <ChevronRight className="w-5 h-5 text-muted-foreground/30" />
-              </button>
-            ))}
-          </div>
-        )}
+              </div>
+            ))
+          )}
+        </div>
       </main>
 
       <button
         onClick={() => navigate('/nova-os')}
-        className="fixed bottom-8 right-6 bg-primary text-white h-16 px-8 rounded-2xl shadow-2xl shadow-primary/40 flex items-center gap-2 font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all z-50 border-b-4 border-black/20"
+        className="fixed bottom-8 right-6 bg-slate-900 text-white h-16 px-8 rounded-2xl shadow-2xl shadow-slate-900/30 flex items-center gap-3 font-black uppercase tracking-widest z-50 hover:scale-105 active:scale-95 transition-all"
       >
         <Plus className="w-6 h-6" />
         Nova OS

@@ -1,3 +1,10 @@
+// AS 4 LINHAS MÁGICAS QUE RESOLVEM A TELA BRANCA DO PDF:
+import { Buffer } from 'buffer';
+if (typeof window !== 'undefined') {
+  window.global = window;
+  window.Buffer = Buffer;
+}
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -18,8 +25,6 @@ function SyncHandler() {
   return null;
 }
 
-// 1. LIMPEZA: Removemos o "return null" daqui. 
-// Se chegou aqui, é porque já parou de carregar.
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
 
@@ -30,8 +35,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AppRoutes() {
   const { user, loading } = useAuth();
 
-  // 2. LIMPEZA: Removemos o timer de 3 segundos que forçava a tela branca.
-  // Agora a bolinha só some quando o app realmente terminar de ler o banco.
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8fafc]">

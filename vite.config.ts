@@ -8,43 +8,35 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.ico", "robots.txt", "placeholder.svg"],
       manifest: {
         name: "TECFLEX - Ordens de Serviço",
         short_name: "Tecflex OS",
-        description: "Sistema de Assistência Técnica Tecflex",
-        theme_color: "#ffffff",
+        theme_color: "#1e293b",
         background_color: "#ffffff",
         display: "standalone",
         start_url: "/",
-        icons: [
-          {
-            src: "placeholder.svg", // Depois você troca pelo logo real da Tecflex
-            sizes: "192x192",
-            type: "image/svg+xml",
-          },
-          {
-            src: "placeholder.svg",
-            sizes: "512x512",
-            type: "image/svg+xml",
-          },
-        ],
-      },
-      workbox: {
-        // Cache de fontes e recursos externos (ex: Lucide Icons)
-        globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
-            handler: "NetworkOnly", // Dados do banco nunca ficam em cache estático
-          },
-        ],
+        icons: [{ src: "placeholder.svg", sizes: "192x192", type: "image/svg+xml" }]
       },
     }),
   ],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+    },
+  },
+  optimizeDeps: {
+    // Adicionamos as dependências do PDF aqui para o Vite prepará-las corretamente
+    include: [
+      '@react-pdf/renderer',
+      'base64-js',
+      'buffer',
+      'queue-microtask'
+    ],
+  },
+  build: {
+    commonjsOptions: {
+      // Força a compatibilidade de módulos antigos
+      include: [/node_modules/],
     },
   },
 });
