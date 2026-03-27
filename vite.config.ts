@@ -15,7 +15,26 @@ export default defineConfig({
         background_color: "#ffffff",
         display: "standalone",
         start_url: "/",
-        icons: [{ src: "placeholder.svg", sizes: "192x192", type: "image/svg+xml" }]
+        // Atualizado para usar o seu favicon oficial
+        icons: [
+          { 
+            src: "/favicon.png", 
+            sizes: "192x192", 
+            type: "image/png" 
+          },
+          { 
+            src: "/favicon.png", 
+            sizes: "512x512", 
+            type: "image/png" 
+          }
+        ]
+      },
+      // CONFIGURAÇÃO DO WORKBOX: Aqui é onde resolvemos o erro do limite de 2MB
+      workbox: {
+        // Aumentamos para 5MB para garantir que o arquivo de 2.27MB passe tranquilo
+        maximumFileSizeToCacheInBytes: 5242880, 
+        // Isso garante que o service worker não se perca com arquivos grandes
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
       },
     }),
   ],
@@ -25,7 +44,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    // Adicionamos as dependências do PDF aqui para o Vite prepará-las corretamente
+    // Mantendo suas configurações de PDF para evitar erros de renderização
     include: [
       '@react-pdf/renderer',
       'base64-js',
@@ -35,8 +54,9 @@ export default defineConfig({
   },
   build: {
     commonjsOptions: {
-      // Força a compatibilidade de módulos antigos
       include: [/node_modules/],
     },
+    // Dica: Aumentando o limite de aviso de chunk para o console ficar limpo
+    chunkSizeWarningLimit: 2500,
   },
 });
