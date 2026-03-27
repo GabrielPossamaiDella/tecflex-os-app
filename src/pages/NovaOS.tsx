@@ -112,11 +112,9 @@ export default function NovaOS() {
         valor_deslocamento: form.valor_deslocamento || 0,
       };
 
-      // 1. SALVA OFFLINE
       await db.ordens_os.add(novaOSLocal as any);
       toast.info("OS salva no celular!");
 
-      // 2. TENTA ONLINE
       if (navigator.onLine) {
         const { error: osError } = await supabase
           .from('ordens_servico')
@@ -160,9 +158,6 @@ export default function NovaOS() {
         toast.warning('Sem internet. A OS será enviada depois.');
       }
 
-      // ====================================================================
-      // MÁGICA AQUI: Em vez de ir para '/', ele vai direto para a OS recém criada!
-      // ====================================================================
       navigate(`/os/${osId}`, { replace: true });
       
     } catch (err) {
@@ -217,12 +212,13 @@ export default function NovaOS() {
         </div>
       </main>
 
+      {/* A ÚNICA DIFERENÇA ESTÁ AQUI: Botões mais altos (py-4) e com fonte maior (text-base) */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-4 py-4 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
         <div className="max-w-2xl mx-auto flex gap-3">
           <button
             type="button"
             onClick={handleBackOrCancel}
-            className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl py-3.5 text-sm uppercase tracking-wide transition-colors"
+            className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl py-4 text-base uppercase tracking-wide transition-colors"
             disabled={saving}
           >
             {step === 0 ? 'Cancelar' : 'Voltar'}
@@ -232,11 +228,11 @@ export default function NovaOS() {
             <button
               type="button"
               onClick={() => setStep(step + 1)}
-              className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl py-3.5 text-sm uppercase tracking-wide shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
+              className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl py-4 text-base uppercase tracking-wide shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
               disabled={!canNext()}
             >
               Próximo
-              <ArrowRight className="w-4 h-4" />
+              <ArrowRight className="w-5 h-5" />
             </button>
           ) : (
             <button
@@ -245,10 +241,10 @@ export default function NovaOS() {
                 e.preventDefault(); 
                 handleFinish();
               }}
-              className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl py-3.5 text-sm uppercase tracking-wide shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-70"
+              className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl py-4 text-base uppercase tracking-wide shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-70"
               disabled={saving}
             >
-              {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Finalizar OS'}
+              {saving ? <Loader2 className="w-6 h-6 animate-spin" /> : 'Finalizar OS'}
             </button>
           )}
         </div>

@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { PDFDownloadLink, Document, Page, Text, View, StyleSheet, Image, pdf } from '@react-pdf/renderer';
 
 // ============================================================================
-// ÁREA DO PDF - INTACTA
+// ÁREA DO PDF - ATUALIZADA PARA ESCONDER TABELA VAZIA
 // ============================================================================
 const pdfStyles = StyleSheet.create({
   page: { padding: 40, backgroundColor: '#fff', fontSize: 10, fontFamily: 'Helvetica' },
@@ -91,21 +91,35 @@ const OSPdfDocument = ({ os, pecas }: any) => {
           <View style={pdfStyles.cell}><Text>{os.servico_executado || 'Nenhum registro.'}</Text></View>
         </View>
 
+        {/* ------------------------------------------------------------------
+            MÁGICA AQUI: Oculta a tabela se não tiver peça nenhuma 
+            ------------------------------------------------------------------ */}
         <View style={pdfStyles.section}>
           <Text style={pdfStyles.sectionTitle}>4. Peças Aplicadas</Text>
-          <View style={pdfStyles.tableHeader}>
-            <Text style={[pdfStyles.cell, { width: '60%', fontWeight: 'bold' }]}>Descrição</Text>
-            <Text style={[pdfStyles.cell, { width: '15%', textAlign: 'center', fontWeight: 'bold' }]}>Qtd</Text>
-            <Text style={[pdfStyles.cell, { width: '25%', textAlign: 'right', fontWeight: 'bold' }]}>Total</Text>
-          </View>
-          {pecas.map((p: any) => (
-            <View key={p.id || Math.random()} style={pdfStyles.row}>
-              <Text style={[pdfStyles.cell, { width: '60%' }]}>{p.nome}</Text>
-              <Text style={[pdfStyles.cell, { width: '15%', textAlign: 'center' }]}>{p.quantidade}</Text>
-              <Text style={[pdfStyles.cell, { width: '25%', textAlign: 'right' }]}>{formatCurrency(p.total)}</Text>
+          {pecas && pecas.length > 0 ? (
+            <>
+              <View style={pdfStyles.tableHeader}>
+                <Text style={[pdfStyles.cell, { width: '60%', fontWeight: 'bold' }]}>Descrição</Text>
+                <Text style={[pdfStyles.cell, { width: '15%', textAlign: 'center', fontWeight: 'bold' }]}>Qtd</Text>
+                <Text style={[pdfStyles.cell, { width: '25%', textAlign: 'right', fontWeight: 'bold' }]}>Total</Text>
+              </View>
+              {pecas.map((p: any) => (
+                <View key={p.id || Math.random()} style={pdfStyles.row}>
+                  <Text style={[pdfStyles.cell, { width: '60%' }]}>{p.nome}</Text>
+                  <Text style={[pdfStyles.cell, { width: '15%', textAlign: 'center' }]}>{p.quantidade}</Text>
+                  <Text style={[pdfStyles.cell, { width: '25%', textAlign: 'right' }]}>{formatCurrency(p.total)}</Text>
+                </View>
+              ))}
+            </>
+          ) : (
+            <View style={[pdfStyles.cell, { paddingVertical: 15 }]}>
+              <Text style={{ textAlign: 'center', color: '#6b7280', fontStyle: 'italic' }}>
+                Nenhuma peça ou material foi aplicado neste serviço.
+              </Text>
             </View>
-          ))}
+          )}
         </View>
+        {/* ------------------------------------------------------------------ */}
 
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }}>
           <View style={{ width: '50%' }}>
@@ -147,27 +161,19 @@ export default function OSDetalhe() {
   const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => { 
-    // Se o sistema estiver chamando uma "Nova OS", não fazemos loadData e tiramos a bolinha azul
     if (id && id !== 'undefined' && id !== 'nova-os' && !id.includes('nova-os')) {
       loadData(); 
     } else {
-      // É uma Nova OS, libera a tela imediatamente (sai do loading)
       setLoading(false);
-      // Configura um estado vazio para não quebrar o layout
-      setOs({
-         id: 'NOVA',
-         clientes: { nome: 'Cliente Não Vinculado' },
-         maquina_descricao: '',
-         defeito_reclamado: '',
-         valor_deslocamento: 0,
-         tempo_atendimento_min: 0,
-         valor_hora: 0
-      });
-      setIsEditing(true); // Já abre em modo de edição
     }
   }, [id]);
 
   const loadData = async () => {
+    if (!id || id === 'undefined' || id === 'nova-os' || id.includes('nova-os')) {
+       setLoading(false);
+       return; 
+    }
+
     try {
       setLoading(true);
       const { data: osData, error: osError } = await supabase.from('ordens_servico').select('*, clientes(*)').eq('id', id).single();
@@ -208,11 +214,6 @@ export default function OSDetalhe() {
   };
 
   const handleUpdate = async () => {
-    if (id === 'nova-os' || !id) {
-       toast.error("Para salvar uma Nova OS, use o botão de cadastro no painel.");
-       return;
-    }
-    
     try {
       setLoading(true);
       const { error: osError } = await supabase.from('ordens_servico').update({
@@ -249,7 +250,6 @@ export default function OSDetalhe() {
     try {
       toast.loading("Preparando arquivo para envio...", { id: 'shareToast' });
       
-      // Gera o PDF somente SE o usuário clicar
       const blob = await pdf(<OSPdfDocument os={os} pecas={pecas} />).toBlob();
       const fileName = `OS_TECFLEX_${os.id.slice(0, 8)}.pdf`;
       const file = new File([blob], fileName, { type: 'application/pdf' });
@@ -288,7 +288,7 @@ export default function OSDetalhe() {
           {isEditing ? (
             <>
               <button onClick={handleUpdate} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold shadow-lg transition-all active:scale-95"><Save size={16} /><span className="hidden sm:inline">Salvar Tudo</span></button>
-              <button onClick={() => { setIsEditing(false); if(id !== 'nova-os') loadData(); }} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"><X size={20} /></button>
+              <button onClick={() => { setIsEditing(false); loadData(); }} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"><X size={20} /></button>
             </>
           ) : (
             <>

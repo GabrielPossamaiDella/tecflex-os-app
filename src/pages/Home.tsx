@@ -26,7 +26,6 @@ interface OSItem {
 }
 
 export default function Home() {
-  // 1. CORREÇÃO: Puxamos o 'tecnico' também para garantir o ID correto
   const { user, tecnico, signOut } = useAuth(); 
   const navigate = useNavigate();
   const [ordens, setOrdens] = useState<OSItem[]>([]);
@@ -34,10 +33,8 @@ export default function Home() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // O ID que o sistema deve usar para buscar as OS
   const activeId = tecnico?.id || user?.id;
 
-  // 2. TRAVA DE SEGURANÇA: Só carrega se o activeId já existir, matando o erro "eq.undefined"
   useEffect(() => {
     if (activeId) {
       loadOrdens();
@@ -45,16 +42,28 @@ export default function Home() {
   }, [activeId]);
 
   const loadOrdens = async () => {
-    if (!activeId) return; // Trava dupla
+    if (!activeId) return; 
     setLoading(true);
     try {
       let ordensOnline: OSItem[] = [];
+      
+      // Checa se o usuário é administrador (aceita campo 'role' ou 'is_admin')
+      // O 'as any' previne erros visuais no TypeScript
+      const isAdmin = (tecnico as any)?.role === 'admin' || (tecnico as any)?.is_admin === true;
+
       if (navigator.onLine) {
-        const { data, error } = await supabase
+        // 1. Cria a busca base pegando todas as OS
+        let query = supabase
           .from('ordens_servico')
           .select('id, status, defeito_reclamado, maquina_descricao, created_at, clientes(nome)')
-          .eq('tecnico_id', activeId) // Usando o ID validado
           .order('created_at', { ascending: false });
+        
+        // 2. MÁGICA DA HIERARQUIA: Se NÃO for admin, filtra só as dele.
+        if (!isAdmin) {
+          query = query.eq('tecnico_id', activeId);
+        }
+        
+        const { data, error } = await query;
         
         if (!error && data) {
           ordensOnline = data.map((os: any) => ({
@@ -71,7 +80,12 @@ export default function Home() {
 
       const ordensLocaisRaw = await db.ordens_os.toArray();
       
-      const ordensLocais: OSItem[] = await Promise.all(ordensLocaisRaw.map(async (os: any) => {
+      // Aplica a mesma regra de admin para as OS salvas no modo offline do celular
+      const ordensLocaisFiltradas = isAdmin 
+        ? ordensLocaisRaw 
+        : ordensLocaisRaw.filter(os => os.tecnico_id === activeId || !os.tecnico_id);
+      
+      const ordensLocais: OSItem[] = await Promise.all(ordensLocaisFiltradas.map(async (os: any) => {
         let nomeReal = 'Cliente Desconhecido';
         if (os.cliente_id) {
           const clienteLocal = await db.clientes_cache.get(os.cliente_id);
@@ -164,7 +178,7 @@ export default function Home() {
         const { error: osError } = await supabase.from('ordens_servico').upsert({
           id: os.id,
           cliente_id: os.cliente_id,
-          tecnico_id: os.tecnico_id || activeId, // Fallback se a OS antiga não tiver o ID do técnico gravado
+          tecnico_id: os.tecnico_id || activeId, 
           defeito_reclamado: os.defeito_reclamado,
           maquina_descricao: os.maquina_descricao,
           hora_saida: horaInicioFull, 
