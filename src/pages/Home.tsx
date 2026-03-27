@@ -334,9 +334,13 @@ export default function Home() {
                       {new Date(os.created_at).toLocaleDateString('pt-BR')}
                     </span>
                     {os.sincronizado ? (
-                      <Cloud size={16} className="text-emerald-500" title="Sincronizado" />
+                      <div title="Sincronizado">
+                        <Cloud size={16} className="text-emerald-500" />
+                      </div>
                     ) : (
-                      <CloudOff size={16} className="text-amber-500 animate-pulse" title="Aguardando Sincronização" />
+                      <div title="Aguardando Sincronização">
+                        <CloudOff size={16} className="text-amber-500 animate-pulse" />
+                      </div>
                     )}
                   </div>
                   <button 

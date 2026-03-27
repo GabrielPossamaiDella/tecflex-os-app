@@ -7,11 +7,10 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-// Usaremos apenas a função 'pdf' direta, sem o hook 'usePDF' que causava o travamento.
 import { PDFDownloadLink, Document, Page, Text, View, StyleSheet, Image, pdf } from '@react-pdf/renderer';
 
 // ============================================================================
-// ÁREA DO PDF - INTACTA E INTOCÁVEL
+// ÁREA DO PDF - INTACTA
 // ============================================================================
 const pdfStyles = StyleSheet.create({
   page: { padding: 40, backgroundColor: '#fff', fontSize: 10, fontFamily: 'Helvetica' },
@@ -147,21 +146,28 @@ export default function OSDetalhe() {
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
 
-  // Trava de segurança mantida para evitar buscar IDs falsos
   useEffect(() => { 
+    // Se o sistema estiver chamando uma "Nova OS", não fazemos loadData e tiramos a bolinha azul
     if (id && id !== 'undefined' && id !== 'nova-os' && !id.includes('nova-os')) {
       loadData(); 
     } else {
+      // É uma Nova OS, libera a tela imediatamente (sai do loading)
       setLoading(false);
+      // Configura um estado vazio para não quebrar o layout
+      setOs({
+         id: 'NOVA',
+         clientes: { nome: 'Cliente Não Vinculado' },
+         maquina_descricao: '',
+         defeito_reclamado: '',
+         valor_deslocamento: 0,
+         tempo_atendimento_min: 0,
+         valor_hora: 0
+      });
+      setIsEditing(true); // Já abre em modo de edição
     }
   }, [id]);
 
   const loadData = async () => {
-    if (!id || id === 'undefined' || id === 'nova-os' || id.includes('nova-os')) {
-       setLoading(false);
-       return; 
-    }
-
     try {
       setLoading(true);
       const { data: osData, error: osError } = await supabase.from('ordens_servico').select('*, clientes(*)').eq('id', id).single();
@@ -202,6 +208,11 @@ export default function OSDetalhe() {
   };
 
   const handleUpdate = async () => {
+    if (id === 'nova-os' || !id) {
+       toast.error("Para salvar uma Nova OS, use o botão de cadastro no painel.");
+       return;
+    }
+    
     try {
       setLoading(true);
       const { error: osError } = await supabase.from('ordens_servico').update({
@@ -234,12 +245,11 @@ export default function OSDetalhe() {
     finally { setLoading(false); }
   };
 
-  // Função reescrita: Ela só gera o PDF quando o usuário realmente clica no botão!
   const handleSharePDF = async () => {
     try {
       toast.loading("Preparando arquivo para envio...", { id: 'shareToast' });
       
-      // Chama a função bruta do PDF apenas nesta hora exata
+      // Gera o PDF somente SE o usuário clicar
       const blob = await pdf(<OSPdfDocument os={os} pecas={pecas} />).toBlob();
       const fileName = `OS_TECFLEX_${os.id.slice(0, 8)}.pdf`;
       const file = new File([blob], fileName, { type: 'application/pdf' });
@@ -278,7 +288,7 @@ export default function OSDetalhe() {
           {isEditing ? (
             <>
               <button onClick={handleUpdate} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold shadow-lg transition-all active:scale-95"><Save size={16} /><span className="hidden sm:inline">Salvar Tudo</span></button>
-              <button onClick={() => { setIsEditing(false); loadData(); }} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"><X size={20} /></button>
+              <button onClick={() => { setIsEditing(false); if(id !== 'nova-os') loadData(); }} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"><X size={20} /></button>
             </>
           ) : (
             <>
