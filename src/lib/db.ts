@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie';
 
 // Interface para o Cache de Clientes
 export interface ClienteLocal {
+  documento: any;
   id: string;
   nome: string;
   fone: string | null;
@@ -11,6 +12,9 @@ export interface ClienteLocal {
 }
 
 export interface OrdemServico {
+  tempo_atendimento_min: any;
+  pecas: any;
+  created_at: any;
   id?: string;
   cliente_id?: string;
   tecnico_id?: string;
