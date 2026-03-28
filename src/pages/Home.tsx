@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Plus, LogOut, ClipboardList, 
   CloudOff, Cloud, Search, RefreshCw, Trash2,
-  LayoutDashboard, UploadCloud, User, Wrench
+  UploadCloud, User, Wrench, ShieldCheck 
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { db } from '@/lib/db'; 
@@ -38,33 +38,51 @@ export default function Home() {
   useEffect(() => {
     if (activeId) {
       loadOrdens();
+      syncClientes(); // MÁGICA: Baixa os clientes sempre que abrir o app com rede
     }
   }, [activeId]);
+
+  // FUNÇÃO NOVA: Baixa todos os clientes para o celular para uso offline
+  const syncClientes = async () => {
+    if (!navigator.onLine) return;
+    try {
+      const { data, error } = await supabase.from('clientes').select('*');
+      if (error) throw error;
+      if (data) {
+        // Salva todos no banco de dados interno do celular (Dexie)
+        await db.clientes_cache.bulkPut(data.map(c => ({
+          id: c.id,
+          nome: c.nome,
+          fone: c.fone || null,
+          endereco: c.endereco || null,
+          cidade: c.cidade || null,
+          sincronizado: true
+        })));
+        console.log("Clientes sincronizados para uso offline.");
+      }
+    } catch (err) {
+      console.error("Erro ao sincronizar clientes:", err);
+    }
+  };
 
   const loadOrdens = async () => {
     if (!activeId) return; 
     setLoading(true);
     try {
       let ordensOnline: OSItem[] = [];
-      
-      // Checa se o usuário é administrador (aceita campo 'role' ou 'is_admin')
-      // O 'as any' previne erros visuais no TypeScript
       const isAdmin = (tecnico as any)?.role === 'admin' || (tecnico as any)?.is_admin === true;
 
       if (navigator.onLine) {
-        // 1. Cria a busca base pegando todas as OS
         let query = supabase
           .from('ordens_servico')
           .select('id, status, defeito_reclamado, maquina_descricao, created_at, clientes(nome)')
           .order('created_at', { ascending: false });
         
-        // 2. MÁGICA DA HIERARQUIA: Se NÃO for admin, filtra só as dele.
         if (!isAdmin) {
           query = query.eq('tecnico_id', activeId);
         }
         
         const { data, error } = await query;
-        
         if (!error && data) {
           ordensOnline = data.map((os: any) => ({
             id: os.id,
@@ -79,8 +97,6 @@ export default function Home() {
       }
 
       const ordensLocaisRaw = await db.ordens_os.toArray();
-      
-      // Aplica a mesma regra de admin para as OS salvas no modo offline do celular
       const ordensLocaisFiltradas = isAdmin 
         ? ordensLocaisRaw 
         : ordensLocaisRaw.filter(os => os.tecnico_id === activeId || !os.tecnico_id);
@@ -207,16 +223,13 @@ export default function Home() {
           }
           await db.ordens_os.update(os.id, { sincronizado: true });
           sucesso++;
-        } else {
-          console.error("Erro na OS", os.id, osError);
         }
       }
 
       if (sucesso > 0) {
         toast.success(`${sucesso} Ordens sincronizadas com sucesso!`);
         loadOrdens();
-      } else {
-        toast.error("Nenhuma OS pôde ser sincronizada.");
+        syncClientes(); // Aproveita e atualiza os clientes também
       }
     } catch (error) {
       toast.error("Erro durante a sincronização.");
@@ -228,7 +241,6 @@ export default function Home() {
   const deleteIndividualOS = async (e: React.MouseEvent, id: string, isSincronizada: boolean) => {
     e.stopPropagation(); 
     if (!confirm("Excluir esta Ordem de Serviço permanentemente?")) return;
-
     try {
       setLoading(true);
       await db.ordens_os.delete(id);
@@ -256,11 +268,14 @@ export default function Home() {
       <header className="bg-slate-900 text-white p-6 sticky top-0 z-50 shadow-2xl shadow-slate-900/20">
         <div className="flex items-center justify-between max-w-2xl mx-auto">
           <div className="flex items-center gap-3">
-            <div className="bg-indigo-600 p-2 rounded-xl shadow-lg shadow-indigo-500/40">
-              <LayoutDashboard size={24} />
+            {/* ÍCONE DO ESCUDO ATUALIZADO */}
+            <div className="bg-indigo-600 p-2.5 rounded-xl shadow-lg shadow-indigo-500/40">
+              <ShieldCheck size={24} className="text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-black tracking-tight uppercase italic">Tecflex</h1>
+              <h1 className="text-xl font-extrabold tracking-tight text-white uppercase italic">
+                POSSAMAI <span className="font-light text-indigo-400">| TECFLEX</span>
+              </h1>
               <p className="text-[10px] uppercase tracking-[0.2em] text-indigo-400 font-bold">Gestão de Assistência</p>
             </div>
           </div>
@@ -305,7 +320,7 @@ export default function Home() {
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total de Ordens</p>
             <p className="text-2xl font-black text-slate-900">{ordens.length}</p>
           </div>
-          <button onClick={loadOrdens} className="bg-indigo-600 hover:bg-indigo-700 p-4 rounded-2xl shadow-lg shadow-indigo-600/20 text-white flex flex-col items-center justify-center transition-all active:scale-95 group">
+          <button onClick={() => { loadOrdens(); syncClientes(); }} className="bg-indigo-600 hover:bg-indigo-700 p-4 rounded-2xl shadow-lg shadow-indigo-600/20 text-white flex flex-col items-center justify-center transition-all active:scale-95 group">
             <RefreshCw size={20} className={loading ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'} />
             <span className="text-[10px] font-black uppercase mt-2 tracking-widest">Atualizar</span>
           </button>
@@ -380,4 +395,4 @@ export default function Home() {
       </button>
     </div>
   );
-} 
+}
