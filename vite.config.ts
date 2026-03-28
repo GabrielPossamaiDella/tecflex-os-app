@@ -17,15 +17,17 @@ export default defineConfig({
         start_url: "/",
         // Atualizado para usar o seu favicon oficial
         icons: [
-          { 
-            src: "/favicon.png", 
-            sizes: "192x192", 
-            type: "image/png" 
+          {
+            src: "/apple-touch-icon.png",
+            sizes: "180x180",
+            type: "image/png",
+            purpose: "any" // 'any' permite que o Android use o ícone sem frescura
           },
-          { 
-            src: "/favicon.png", 
-            sizes: "512x512", 
-            type: "image/png" 
+          {
+            src: "/apple-touch-icon.png",
+            sizes: "180x180",
+            type: "image/png",
+            purpose: "maskable" // 'maskable' faz o ícone se adaptar ao formato do celular (redondo, quadrado, etc)
           }
         ]
       },
